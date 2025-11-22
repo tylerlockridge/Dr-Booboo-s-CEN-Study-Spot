@@ -1,0 +1,87 @@
+/**
+ * CEN Exam Question Bank - Master Aggregator
+ * Combines all category questions into single array
+ * Total Questions: 450+
+ * Last Updated: 2025-11-22
+ */
+
+// Import all category question banks
+const allQuestions = [
+    ...cardiovascularQuestions,
+    ...respiratoryQuestions,
+    ...neurologicalQuestions,
+    ...traumaQuestions,
+    ...toxicologyQuestions,
+    ...pediatricsQuestions,
+    ...obstetricsQuestions,
+    ...environmentalQuestions
+];
+
+// Question bank statistics
+const questionStats = {
+    total: allQuestions.length,
+    byCategory: {
+        cardiovascular: cardiovascularQuestions.length,
+        respiratory: respiratoryQuestions.length,
+        neurological: neurologicalQuestions.length,
+        trauma: traumaQuestions.length,
+        toxicology: toxicologyQuestions.length,
+        pediatrics: pediatricsQuestions.length,
+        obstetrics: obstetricsQuestions.length,
+        environmental: environmentalQuestions.length
+    },
+    byDifficulty: {
+        easy: allQuestions.filter(q => q.difficulty === 'easy').length,
+        medium: allQuestions.filter(q => q.difficulty === 'medium').length,
+        hard: allQuestions.filter(q => q.difficulty === 'hard').length
+    }
+};
+
+// Utility functions for question management
+const QuestionBank = {
+    // Get all questions
+    getAll: () => allQuestions,
+    
+    // Get questions by category
+    getByCategory: (category) => {
+        return allQuestions.filter(q => 
+            q.category.toLowerCase() === category.toLowerCase()
+        );
+    },
+    
+    // Get questions by difficulty
+    getByDifficulty: (difficulty) => {
+        return allQuestions.filter(q => 
+            q.difficulty.toLowerCase() === difficulty.toLowerCase()
+        );
+    },
+    
+    // Get random questions
+    getRandom: (count) => {
+        const shuffled = [...allQuestions].sort(() => 0.5 - Math.random());
+        return shuffled.slice(0, count);
+    },
+    
+    // Get question by ID
+    getById: (id) => {
+        return allQuestions.find(q => q.id === id);
+    },
+    
+    // Search questions
+    search: (query) => {
+        const lowerQuery = query.toLowerCase();
+        return allQuestions.filter(q => 
+            q.question.toLowerCase().includes(lowerQuery) ||
+            q.explanation.toLowerCase().includes(lowerQuery) ||
+            q.category.toLowerCase().includes(lowerQuery)
+        );
+    },
+    
+    // Get statistics
+    getStats: () => questionStats
+};
+
+// Export for use in application
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { allQuestions, QuestionBank, questionStats };
+}
