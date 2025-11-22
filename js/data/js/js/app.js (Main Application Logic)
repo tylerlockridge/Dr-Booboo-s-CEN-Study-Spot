@@ -1,0 +1,824 @@
+/**
+ * CEN Exam Prep - Main Application
+ * Handles UI interactions and quiz flow
+ */
+
+// Global variables
+let questionManager;
+let currentQuestion;
+let timerInterval;
+
+// Initialize application
+document.addEventListener('DOMContentLoaded', function() {
+    initializeApp();
+    setupEventListeners();
+    checkForSavedProgress();
+});
+
+function initializeApp() {
+    // Initialize question manager with all questions
+    questionManager = new QuestionManager(allQuestions);
+    
+    // Display welcome screen
+    showWelcomeScreen();
+    
+    // Load user settings
+    applySettings(questionManager.settings);
+    
+    // Display statistics
+    updateStatistics();
+}
+
+function showWelcomeScreen() {
+    const welcomeHTML = `
+        <div class="welcome-container">
+            <h1>🏥 CEN Exam Preparation</h1>
+            <p class="subtitle">Certified Emergency Nurse Practice Questions</p>
+            
+            <div class="stats-overview">
+                <div class="stat-card">
+                    <div class="stat-number">${questionStats.total}</div>
+                    <div class="stat-label">Total Questions</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">${Object.keys(questionStats.byCategory).length}</div>
+                    <div class="stat-label">Categories</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">${questionManager.getHistory().length}</div>
+                    <div class="stat-label">Attempts</div>
+                </div>
+            </div>
+
+            <div class="quiz-options">
+                <h2>Select Quiz Mode</h2>
+                
+                <div class="mode-selector">
+                    <button class="mode-btn" data-mode="practice">
+                        <i class="icon">📚</i>
+                        <h3>Practice Mode</h3>
+                        <p>Study with immediate feedback</p>
+                    </button>
+                    
+                    <button class="mode-btn" data-mode="timed">
+                        <i class="icon">⏱️</i>
+                        <h3>Timed Exam</h3>
+                        <p>Simulate real CEN exam conditions</p>
+                    </button>
+                    
+                    <button class="mode-btn" data-mode="category">
+                        <i class="icon">🎯</i>
+                        <h3>Category Focus</h3>
+                        <p>Practice specific topics</p>
+                    </button>
+                    
+                    <button class="mode-btn" data-mode="review">
+                        <i class="icon">🔍</i>
+                        <h3>Review Flagged</h3>
+                        <p>Review marked questions</p>
+                    </button>
+                </div>
+
+                <div class="settings-panel" id="quizSettings" style="display:none;">
+                    <!-- Settings will be populated based on mode -->
+                </div>
+
+                <button class="btn-primary btn-large" id="startQuizBtn" style="display:none;">
+                    Start Quiz
+                </button>
+            </div>
+
+            <div class="quick-links">
+                <a href="documentation.html" class="link-btn">📖 Documentation</a>
+                <a href="admin.html" class="link-btn">⚙️ Admin Panel</a>
+                <a href="#" id="viewHistoryBtn" class="link-btn">📊 View History</a>
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('app').innerHTML = welcomeHTML;
+}
+
+function setupEventListeners() {
+    // Mode selection
+    document.addEventListener('click', function(e) {
+        if (e.target.closest('.mode-btn')) {
+            const mode = e.target.closest('.mode-btn').dataset.mode;
+            selectMode(mode);
+        }
+    });
+
+    // Start quiz button
+    document.addEventListener('click', function(e) {
+        if (e.target.id === 'startQuizBtn') {
+            startQuiz();
+        }
+    });
+
+    // Navigation buttons
+    document.addEventListener('click', function(e) {
+        if (e.target.id === 'nextBtn') nextQuestion();
+        if (e.target.id === 'prevBtn') previousQuestion();
+        if (e.target.id === 'submitBtn') submitAnswer();
+        if (e.target.id === 'flagBtn') flagQuestion();
+        if (e.target.id === 'finishBtn') finishQuiz();
+    });
+
+    // Answer selection
+    document.addEventListener('click', function(e) {
+        if (e.target.closest('.option-btn')) {
+            selectAnswer(e.target.closest('.option-btn'));
+        }
+    });
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'ArrowRight') nextQuestion();
+        if (e.key === 'ArrowLeft') previousQuestion();
+        if (e.key >= '1' && e.key <= '4') {
+            const index = parseInt(e.key) - 1;
+            const optionBtn = document.querySelectorAll('.option-btn')[index];
+            if (optionBtn) selectAnswer(optionBtn);
+        }
+    });
+}
+
+function selectMode(mode) {
+    // Remove active class from all mode buttons
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    
+    // Add active class to selected mode
+    event.target.closest('.mode-btn').classList.add('active');
+    
+    // Show settings panel
+    const settingsPanel = document.getElementById('quizSettings');
+    settingsPanel.style.display = 'block';
+    
+    // Populate settings based on mode
+    let settingsHTML = '';
+    
+    if (mode === 'practice') {
+        settingsHTML = `
+            <h3>Practice Mode Settings</h3>
+            <div class="setting-group">
+                <label>Number of Questions:</label>
+                <select id="questionCount">
+                    <option value="10">10 Questions</option>
+                    <option value="25">25 Questions</option>
+                    <option value="50" selected>50 Questions</option>
+                    <option value="100">100 Questions</option>
+                    <option value="all">All Questions (${questionStats.total})</option>
+                </select>
+            </div>
+            <div class="setting-group">
+                <label>
+                    <input type="checkbox" id="randomize" checked>
+                    Randomize Questions
+                </label>
+            </div>
+            <div class="setting-group">
+                <label>
+                    <input type="checkbox" id="showExplanations" checked>
+                    Show Explanations Immediately
+                </label>
+            </div>
+        `;
+    } else if (mode === 'timed') {
+        settingsHTML = `
+            <h3>Timed Exam Settings</h3>
+            <div class="alert-info">
+                <strong>CEN Exam Format:</strong> 175 questions in 3 hours
+            </div>
+            <div class="setting-group">
+                <label>Exam Length:</label>
+                <select id="examLength">
+                    <option value="practice">Practice (50 questions, 30 min)</option>
+                    <option value="half">Half Exam (87 questions, 90 min)</option>
+                    <option value="full" selected>Full Exam (175 questions, 180 min)</option>
+                </select>
+            </div>
+            <div class="setting-group">
+                <label>
+                    <input type="checkbox" id="strictTiming" checked>
+                    Strict Timing (Auto-submit when time expires)
+                </label>
+            </div>
+        `;
+    } else if (mode === 'category') {
+        const categoryOptions = Object.keys(questionStats.byCategory).map(cat => {
+            const count = questionStats.byCategory[cat];
+            return `<option value="${cat}">${cat.charAt(0).toUpperCase() + cat.slice(1)} (${count})</option>`;
+        }).join('');
+        
+        settingsHTML = `
+            <h3>Category Focus Settings</h3>
+            <div class="setting-group">
+                <label>Select Category:</label>
+                <select id="categorySelect">
+                    ${categoryOptions}
+                </select>
+            </div>
+            <div class="setting-group">
+                <label>Difficulty Level:</label>
+                <select id="difficultySelect">
+                    <option value="all">All Levels</option>
+                    <option value="easy">Easy</option>
+                    <option value="medium" selected>Medium</option>
+                    <option value="hard">Hard</option>
+                </select>
+            </div>
+            <div class="setting-group">
+                <label>Number of Questions:</label>
+                <input type="number" id="categoryQuestionCount" value="25" min="5" max="100">
+            </div>
+        `;
+    } else if (mode === 'review') {
+        const flaggedCount = questionManager.settings.flaggedQuestions?.length || 0;
+        settingsHTML = `
+            <h3>Review Flagged Questions</h3>
+            <div class="alert-info">
+                You have <strong>${flaggedCount}</strong> flagged questions to review.
+            </div>
+            ${flaggedCount === 0 ? '<p>No flagged questions yet. Flag questions during practice to review them later.</p>' : ''}
+        `;
+    }
+    
+    settingsPanel.innerHTML = settingsHTML;
+    
+    // Show start button
+    document.getElementById('startQuizBtn').style.display = 'block';
+    document.getElementById('startQuizBtn').dataset.mode = mode;
+}
+
+function startQuiz() {
+    const mode = document.getElementById('startQuizBtn').dataset.mode;
+    const settings = { mode };
+    
+    // Gather settings based on mode
+    if (mode === 'practice') {
+        const questionCount = document.getElementById('questionCount').value;
+        settings.questionCount = questionCount === 'all' ? null : parseInt(questionCount);
+        settings.randomize = document.getElementById('randomize').checked;
+        settings.showExplanations = document.getElementById('showExplanations').checked;
+    } else if (mode === 'timed') {
+        const examLength = document.getElementById('examLength').value;
+        if (examLength === 'practice') {
+            settings.questionCount = 50;
+            settings.timeLimit = 30 * 60 * 1000; // 30 minutes
+        } else if (examLength === 'half') {
+            settings.questionCount = 87;
+            settings.timeLimit = 90 * 60 * 1000; // 90 minutes
+        } else {
+            settings.questionCount = 175;
+            settings.timeLimit = 180 * 60 * 1000; // 180 minutes
+        }
+        settings.strictTiming = document.getElementById('strictTiming').checked;
+        settings.showExplanations = false; // Don't show explanations until end
+    } else if (mode === 'category') {
+        settings.category = document.getElementById('categorySelect').value;
+        const difficulty = document.getElementById('difficultySelect').value;
+        if (difficulty !== 'all') settings.difficulty = difficulty;
+        settings.questionCount = parseInt(document.getElementById('categoryQuestionCount').value);
+        settings.randomize = true;
+    } else if (mode === 'review') {
+        // Load flagged questions
+        const flaggedIds = questionManager.settings.flaggedQuestions || [];
+        if (flaggedIds.length === 0) {
+            alert('No flagged questions to review!');
+            return;
+        }
+        settings.questionIds = flaggedIds;
+    }
+    
+    // Initialize quiz
+    const questionCount = questionManager.initializeQuiz(settings);
+    
+    if (questionCount === 0) {
+        alert('No questions available with these settings!');
+        return;
+    }
+    
+    // Show quiz interface
+    showQuizInterface();
+    
+    // Start timer if timed mode
+    if (mode === 'timed') {
+        startTimer(settings.timeLimit);
+    }
+    
+    // Display first question
+    displayQuestion();
+}
+
+function showQuizInterface() {
+    const quizHTML = `
+        <div class="quiz-container">
+            <!-- Header -->
+            <div class="quiz-header">
+                <div class="quiz-progress">
+                    <span id="questionNumber">Question 1 of ${questionManager.currentQuestions.length}</span>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                    </div>
+                </div>
+                <div class="quiz-timer" id="quizTimer" style="display:none;">
+                    <i class="icon">⏱️</i>
+                    <span id="timerDisplay">00:00:00</span>
+                </div>
+                <button class="btn-icon" id="flagBtn" title="Flag for review">
+                    <i class="icon">🚩</i>
+                </button>
+            </div>
+
+            <!-- Question Display -->
+            <div class="question-container">
+                <div class="question-text" id="questionText"></div>
+                <div class="question-meta" id="questionMeta"></div>
+                
+                <div class="options-container" id="optionsContainer"></div>
+                
+                <div class="explanation-container" id="explanationContainer" style="display:none;">
+                    <h4>Explanation:</h4>
+                    <p id="explanationText"></p>
+                    <div class="references" id="referencesContainer"></div>
+                </div>
+            </div>
+
+            <!-- Navigation -->
+            <div class="quiz-navigation">
+                <button class="btn-secondary" id="prevBtn">
+                    ← Previous
+                </button>
+                <button class="btn-primary" id="submitBtn">
+                    Submit Answer
+                </button>
+                <button class="btn-primary" id="nextBtn" style="display:none;">
+                    Next →
+                </button>
+                <button class="btn-danger" id="finishBtn">
+                    Finish Quiz
+                </button>
+            </div>
+
+            <!-- Question Navigator -->
+            <div class="question-navigator">
+                <h4>Question Navigator</h4>
+                <div class="navigator-grid" id="navigatorGrid"></div>
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('app').innerHTML = quizHTML;
+    
+    // Create question navigator
+    createQuestionNavigator();
+}
+
+function displayQuestion() {
+    currentQuestion = questionManager.getCurrentQuestion();
+    const index = questionManager.currentIndex;
+    
+    // Update question number and progress
+    document.getElementById('questionNumber').textContent = 
+        `Question ${index + 1} of ${questionManager.currentQuestions.length}`;
+    
+    const progress = ((index + 1) / questionManager.currentQuestions.length) * 100;
+    document.getElementById('progressFill').style.width = `${progress}%`;
+    
+    // Display question text
+    document.getElementById('questionText').textContent = currentQuestion.question;
+    
+    // Display question metadata
+    document.getElementById('questionMeta').innerHTML = `
+        <span class="badge">${currentQuestion.category}</span>
+        <span class="badge badge-${currentQuestion.difficulty}">${currentQuestion.difficulty}</span>
+        <span class="badge">ID: ${currentQuestion.id}</span>
+    `;
+    
+    // Display options
+    const optionsContainer = document.getElementById('optionsContainer');
+    optionsContainer.innerHTML = currentQuestion.options.map((option, i) => `
+        <button class="option-btn" data-index="${i}">
+            <span class="option-letter">${String.fromCharCode(65 + i)}</span>
+            <span class="option-text">${option}</span>
+        </button>
+    `).join('');
+    
+    // Check if question was already answered
+    const userAnswer = questionManager.userAnswers[index];
+    if (userAnswer !== null) {
+        showAnswerFeedback(userAnswer);
+    }
+    
+    // Update flag button
+    const isFlagged = questionManager.settings.flaggedQuestions?.includes(currentQuestion.id);
+    document.getElementById('flagBtn').classList.toggle('active', isFlagged);
+    
+    // Hide explanation initially
+    document.getElementById('explanationContainer').style.display = 'none';
+    
+    // Update navigator
+    updateQuestionNavigator();
+}
+
+function selectAnswer(optionBtn) {
+    // Remove previous selection
+    document.querySelectorAll('.option-btn').forEach(btn => {
+        btn.classList.remove('selected');
+    });
+    
+    // Add selection to clicked option
+    optionBtn.classList.add('selected');
+    
+    // Enable submit button
+    document.getElementById('submitBtn').disabled = false;
+}
+
+function submitAnswer() {
+    const selectedBtn = document.querySelector('.option-btn.selected');
+    if (!selectedBtn) {
+        alert('Please select an answer!');
+        return;
+    }
+    
+    const answerIndex = parseInt(selectedBtn.dataset.index);
+    const result = questionManager.submitAnswer(answerIndex);
+    
+    // Show feedback
+    showAnswerFeedback(result);
+    
+    // Update navigator
+    updateQuestionNavigator();
+}
+
+function showAnswerFeedback(result) {
+    const optionBtns = document.querySelectorAll('.option-btn');
+    
+    // Disable all options
+    optionBtns.forEach(btn => btn.disabled = true);
+    
+    // Show correct and incorrect answers
+    optionBtns[result.selected].classList.add(result.isCorrect ? 'correct' : 'incorrect');
+    if (!result.isCorrect) {
+        optionBtns[result.correct].classList.add('correct');
+    }
+    
+    // Show explanation if enabled
+    if (questionManager.settings.showExplanations || questionManager.mode === 'practice') {
+        const explanationContainer = document.getElementById('explanationContainer');
+        explanationContainer.style.display = 'block';
+        document.getElementById('explanationText').textContent = currentQuestion.explanation;
+        
+        // Show references
+        if (currentQuestion.references) {
+            document.getElementById('referencesContainer').innerHTML = `
+                <strong>References:</strong>
+                <ul>${currentQuestion.references.map(ref => `<li>${ref}</li>`).join('')}</ul>
+            `;
+        }
+    }
+    
+    // Hide submit button, show next button
+    document.getElementById('submitBtn').style.display = 'none';
+    document.getElementById('nextBtn').style.display = 'inline-block';
+}
+
+function nextQuestion() {
+    if (questionManager.nextQuestion()) {
+        displayQuestion();
+        resetQuestionUI();
+    } else {
+        // Last question
+        if (confirm('This is the last question. Would you like to finish the quiz?')) {
+            finishQuiz();
+        }
+    }
+}
+
+function previousQuestion() {
+    if (questionManager.previousQuestion()) {
+        displayQuestion();
+        resetQuestionUI();
+    }
+}
+
+function resetQuestionUI() {
+    // Reset buttons
+    document.querySelectorAll('.option-btn').forEach(btn => {
+        btn.disabled = false;
+        btn.classList.remove('selected', 'correct', 'incorrect');
+    });
+    
+    // Reset navigation buttons
+    document.getElementById('submitBtn').style.display = 'inline-block';
+    document.getElementById('submitBtn').disabled = true;
+    document.getElementById('nextBtn').style.display = 'none';
+}
+
+function flagQuestion() {
+    const isFlagged = questionManager.flagQuestion();
+    document.getElementById('flagBtn').classList.toggle('active', isFlagged);
+    updateQuestionNavigator();
+}
+
+function createQuestionNavigator() {
+    const navigatorGrid = document.getElementById('navigatorGrid');
+    const html = questionManager.currentQuestions.map((q, i) => `
+        <button class="nav-btn" data-index="${i}" title="Question ${i + 1}">
+            ${i + 1}
+        </button>
+    `).join('');
+    navigatorGrid.innerHTML = html;
+    
+    // Add click handlers
+    navigatorGrid.addEventListener('click', function(e) {
+        if (e.target.classList.contains('nav-btn')) {
+            const index = parseInt(e.target.dataset.index);
+            questionManager.goToQuestion(index);
+            displayQuestion();
+            resetQuestionUI();
+        }
+    });
+}
+
+function updateQuestionNavigator() {
+    const navBtns = document.querySelectorAll('.nav-btn');
+    navBtns.forEach((btn, i) => {
+        btn.classList.remove('answered', 'correct', 'incorrect', 'flagged', 'current');
+        
+        if (i === questionManager.currentIndex) {
+            btn.classList.add('current');
+        }
+        
+        const answer = questionManager.userAnswers[i];
+        if (answer !== null) {
+            btn.classList.add('answered');
+            btn.classList.add(answer.isCorrect ? 'correct' : 'incorrect');
+        }
+        
+        const questionId = questionManager.currentQuestions[i].id;
+        if (questionManager.settings.flaggedQuestions?.includes(questionId)) {
+            btn.classList.add('flagged');
+        }
+    });
+}
+
+function startTimer(timeLimit) {
+    const timerDisplay = document.getElementById('quizTimer');
+    timerDisplay.style.display = 'flex';
+    
+    let timeRemaining = timeLimit;
+    
+    timerInterval = setInterval(() => {
+        timeRemaining -= 1000;
+        
+        if (timeRemaining <= 0) {
+            clearInterval(timerInterval);
+            if (questionManager.settings.strictTiming) {
+                alert('Time is up! Your quiz will be submitted automatically.');
+                finishQuiz();
+            }
+            return;
+        }
+        
+        // Update display
+        const hours = Math.floor(timeRemaining / (1000 * 60 * 60));
+        const minutes = Math.floor((timeRemaining % (1000 * 60 * 60)) / (1000 * 60));
+        const seconds = Math.floor((timeRemaining % (1000 * 60)) / 1000);
+        
+        document.getElementById('timerDisplay').textContent = 
+            `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        
+        // Warning when 5 minutes remaining
+        if (timeRemaining <= 5 * 60 * 1000) {
+            timerDisplay.classList.add('warning');
+        }
+    }, 1000);
+}
+
+function finishQuiz() {
+    if (!confirm('Are you sure you want to finish the quiz?')) {
+        return;
+    }
+    
+    // Stop timer
+    if (timerInterval) {
+        clearInterval(timerInterval);
+    }
+    
+    // Calculate results
+    const results = questionManager.completeQuiz();
+    
+    // Show results screen
+    showResults(results);
+}
+
+function showResults(results) {
+    const passed = results.percentage >= 75;
+    const timeMinutes = Math.floor(results.timeTaken / (1000 * 60));
+    const timeSeconds = Math.floor((results.timeTaken % (1000 * 60)) / 1000);
+    
+    const resultsHTML = `
+        <div class="results-container">
+            <div class="results-header ${passed ? 'passed' : 'failed'}">
+                <h1>${passed ? '🎉 Congratulations!' : '📚 Keep Studying!'}</h1>
+                <p class="results-message">
+                    ${passed ? 'You passed the practice exam!' : 'You need 75% to pass. Review your weak areas and try again.'}
+                </p>
+            </div>
+
+            <div class="results-summary">
+                <div class="result-card">
+                    <div class="result-value">${results.percentage}%</div>
+                    <div class="result-label">Score</div>
+                </div>
+                <div class="result-card">
+                    <div class="result-value">${results.correctAnswers}/${results.totalQuestions}</div>
+                    <div class="result-label">Correct Answers</div>
+                </div>
+                <div class="result-card">
+                    <div class="result-value">${timeMinutes}:${String(timeSeconds).padStart(2, '0')}</div>
+                    <div class="result-label">Time Taken</div>
+                </div>
+                <div class="result-card">
+                    <div class="result-value">${(results.timePerQuestion / 1000).toFixed(1)}s</div>
+                    <div class="result-label">Per Question</div>
+                </div>
+            </div>
+
+            <div class="category-breakdown">
+                <h2>Performance by Category</h2>
+                <div class="category-grid">
+                    ${Object.keys(results.categoryBreakdown).map(category => {
+                        const data = results.categoryBreakdown[category];
+                        return `
+                            <div class="category-card">
+                                <h3>${category}</h3>
+                                <div class="category-score ${data.percentage >= 75 ? 'good' : 'needs-work'}">
+                                    ${data.percentage}%
+                                </div>
+                                <div class="category-details">
+                                    ${data.correct} / ${data.total} correct
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            </div>
+
+            <div class="results-actions">
+                <button class="btn-primary btn-large" onclick="location.reload()">
+                    Take Another Quiz
+                </button>
+                <button class="btn-secondary" id="reviewAnswersBtn">
+                    Review Answers
+                </button>
+                <button class="btn-secondary" id="exportResultsBtn">
+                    Export Results
+                </button>
+                <a href="documentation.html" class="btn-secondary">
+                    Study Resources
+                </a>
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('app').innerHTML = resultsHTML;
+    
+    // Add event listeners
+    document.getElementById('reviewAnswersBtn').addEventListener('click', () => {
+        showDetailedReview(results);
+    });
+    
+    document.getElementById('exportResultsBtn').addEventListener('click', () => {
+        exportResults(results);
+    });
+}
+
+function showDetailedReview(results) {
+    const reviewHTML = `
+        <div class="review-container">
+            <h1>Detailed Answer Review</h1>
+            <button class="btn-secondary" onclick="showResults(${JSON.stringify(results).replace(/"/g, '&quot;')})">
+                ← Back to Results
+            </button>
+            
+            <div class="review-filters">
+                <button class="filter-btn active" data-filter="all">All Questions</button>
+                <button class="filter-btn" data-filter="incorrect">Incorrect Only</button>
+                <button class="filter-btn" data-filter="correct">Correct Only</button>
+                <button class="filter-btn" data-filter="flagged">Flagged</button>
+            </div>
+
+            <div class="review-questions" id="reviewQuestions">
+                ${results.detailedAnswers.map((answer, index) => {
+                    if (answer === null) return '';
+                    
+                    const question = questionManager.currentQuestions[index];
+                    const isCorrect = answer.isCorrect;
+                    const isFlagged = questionManager.settings.flaggedQuestions?.includes(question.id);
+                    
+                    return `
+                        <div class="review-question ${isCorrect ? 'correct' : 'incorrect'} ${isFlagged ? 'flagged' : ''}" 
+                             data-filter="${isCorrect ? 'correct' : 'incorrect'}">
+                            <div class="review-header">
+                                <span class="question-number">Question ${index + 1}</span>
+                                <span class="badge">${question.category}</span>
+                                <span class="result-badge ${isCorrect ? 'correct' : 'incorrect'}">
+                                    ${isCorrect ? '✓ Correct' : '✗ Incorrect'}
+                                </span>
+                            </div>
+                            
+                            <div class="review-question-text">${question.question}</div>
+                            
+                            <div class="review-options">
+                                ${question.options.map((option, i) => {
+                                    let className = 'review-option';
+                                    if (i === answer.selected) className += ' selected';
+                                    if (i === question.correct) className += ' correct-answer';
+                                    
+                                    return `
+                                        <div class="${className}">
+                                            <span class="option-letter">${String.fromCharCode(65 + i)}</span>
+                                            <span class="option-text">${option}</span>
+                                            ${i === question.correct ? '<span class="correct-indicator">✓ Correct Answer</span>' : ''}
+                                            ${i === answer.selected && !isCorrect ? '<span class="incorrect-indicator">✗ Your Answer</span>' : ''}
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                            
+                            <div class="review-explanation">
+                                <h4>Explanation:</h4>
+                                <p>${question.explanation}</p>
+                                ${question.references ? `
+                                    <div class="references">
+                                        <strong>References:</strong>
+                                        <ul>${question.references.map(ref => `<li>${ref}</li>`).join('')}</ul>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('app').innerHTML = reviewHTML;
+    
+    // Add filter functionality
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            
+            const filter = this.dataset.filter;
+            document.querySelectorAll('.review-question').forEach(q => {
+                if (filter === 'all') {
+                    q.style.display = 'block';
+                } else if (filter === 'flagged') {
+                    q.style.display = q.classList.contains('flagged') ? 'block' : 'none';
+                } else {
+                    q.style.display = q.dataset.filter === filter ? 'block' : 'none';
+                }
+            });
+        });
+    });
+}
+
+function exportResults(results) {
+    const dataStr = JSON.stringify(results, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `cen-exam-results-${new Date().toISOString().split('T')[0]}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+}
+
+function updateStatistics() {
+    const stats = QuestionBank.getStats();
+    console.log('Question Bank Statistics:', stats);
+}
+
+function checkForSavedProgress() {
+    if (questionManager.loadProgress()) {
+        if (confirm('You have a saved quiz in progress. Would you like to continue?')) {
+            showQuizInterface();
+            displayQuestion();
+        } else {
+            questionManager.clearProgress();
+        }
+    }
+}
+
+function applySettings(settings) {
+    // Apply theme
+    document.body.classList.toggle('dark-theme', settings.theme === 'dark');
+    
+    // Apply other settings as needed
+}
